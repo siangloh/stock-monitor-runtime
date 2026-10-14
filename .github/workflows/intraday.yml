@@ -1,0 +1,109 @@
+name: Five-minute paper research
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'tick = paper monitoring; train = initialize timing models'
+        type: choice
+        options: [tick, train]
+        default: tick
+  schedule:
+    # Bursa rough window, excluding the main lunch hours.
+    - cron: '2-57/5 1-4,6-8 * * 1-5'
+    # New York rough window covers both EST and EDT; exact calendar checked in code.
+    - cron: '2-57/5 13-20 * * 1-5'
+permissions:
+  contents: read
+concurrency:
+  group: shared-private-paper-account
+  cancel-in-progress: false
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Rough market-window check
+        id: window
+        env:
+          ACTION: ${{ inputs.action || 'tick' }}
+        run: |
+          python - <<'PY'
+          import os
+          from datetime import datetime, timezone
+          from zoneinfo import ZoneInfo
+          now = datetime.now(timezone.utc)
+          my = now.astimezone(ZoneInfo('Asia/Kuala_Lumpur'))
+          us = now.astimezone(ZoneInfo('America/New_York'))
+          m = my.hour * 60 + my.minute
+          u = us.hour * 60 + us.minute
+          active = (my.weekday() < 5 and (540 <= m < 750 or 870 <= m < 1020)) or (us.weekday() < 5 and 570 <= u < 960)
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write('active=' + str(active or os.environ['ACTION'] == 'train').lower() + '\n')
+          PY
+      - uses: actions/checkout@v4
+        if: steps.window.outputs.active == 'true'
+        with:
+          repository: siangloh/stock-monitor-ai
+          ref: main
+          path: source
+          ssh-key: ${{ secrets.PRIVATE_REPO_DEPLOY_KEY }}
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        if: steps.window.outputs.active == 'true'
+        with:
+          python-version: '3.12'
+      - name: Weekly dependency-cache version
+        if: steps.window.outputs.active == 'true'
+        id: epoch
+        run: echo "week=$(date +%G-%V)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        if: steps.window.outputs.active == 'true'
+        id: dependencies
+        with:
+          path: |
+            .runtime-venv
+            ~/.cache/huggingface
+          key: minute-runtime-${{ runner.os }}-${{ steps.epoch.outputs.week }}-${{ hashFiles('source/requirements.txt') }}
+      - name: Prepare cached financial-research runtime
+        if: steps.window.outputs.active == 'true' && steps.dependencies.outputs.cache-hit != 'true'
+        run: |
+          python -m venv .runtime-venv
+          .runtime-venv/bin/pip install -r source/requirements.txt >/dev/null
+          .runtime-venv/bin/pip install 'torch>=2.6,<3' --index-url https://download.pytorch.org/whl/cpu >/dev/null
+      - name: Run private paper analysis without publishing account logs
+        if: steps.window.outputs.active == 'true'
+        id: cycle
+        env:
+          ACTION: ${{ inputs.action || 'tick' }}
+        run: |
+          set -euo pipefail
+          cd source
+          git fetch origin paper-state --depth=1 >cycle.log 2>&1
+          git checkout origin/paper-state -- data >>cycle.log 2>&1
+          if [ "$ACTION" = train ]; then
+            ../.runtime-venv/bin/python intraday.py --train --market ALL >>cycle.log 2>&1
+          else
+            ../.runtime-venv/bin/python intraday.py --execute >>cycle.log 2>&1
+          fi
+          echo 'Cycle completed. Account details remain private.'
+      - name: Persist to private account with optimistic concurrency
+        if: steps.window.outputs.active == 'true' && steps.cycle.outcome == 'success'
+        run: |
+          set -euo pipefail
+          cd source
+          if [ ! -f work_updated.flag ]; then exit 0; fi
+          git config user.name paper-runtime-bot
+          git config user.email paper-runtime-bot@users.noreply.github.com
+          git worktree add --detach /tmp/private-paper-state origin/paper-state >>cycle.log 2>&1
+          mkdir -p /tmp/private-paper-state/data/intraday
+          cp -a data/. /tmp/private-paper-state/data/
+          cp cycle.log /tmp/private-paper-state/data/intraday/latest_debug.txt
+          git -C /tmp/private-paper-state add data
+          if ! git -C /tmp/private-paper-state diff --cached --quiet; then
+            git -C /tmp/private-paper-state commit -m 'Update private paper research state' >>cycle.log 2>&1
+            if ! git -C /tmp/private-paper-state push origin HEAD:paper-state >>cycle.log 2>&1; then
+              echo 'Concurrent account update; this cycle was discarded and will be recomputed.'
+              exit 1
+            fi
+          fi
+          echo 'Private account saved. No bank or brokerage integration.'
