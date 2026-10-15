@@ -21,3 +21,11 @@ not strategy source, credentials, account files or private logs.
 Daily training and summaries remain in the private repository. Intraday models
 must pass chronological validation, alongside the existing daily price/news gate,
 before any paper entry. A failing model means staying in cash.
+
+The scheduler requests a worker hourly on weekdays. Each worker stays alive for
+up to 330 minutes and checks approximately every five minutes, saving each cycle
+immediately. Only one worker runs at a time; GitHub retains at most one pending
+successor. This reduces reliance on five-minute cron delivery but cannot guarantee
+uninterrupted coverage when GitHub delays, cancels or fails to start jobs. Closed
+markets do not execute paper orders. Check the private report's last successful
+check time; a green worker status alone does not prove continuous monitoring.
