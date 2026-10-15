@@ -29,3 +29,10 @@ successor. This reduces reliance on five-minute cron delivery but cannot guarant
 uninterrupted coverage when GitHub delays, cancels or fails to start jobs. Closed
 markets do not execute paper orders. Check the private report's last successful
 check time; a green worker status alone does not prove continuous monitoring.
+
+
+The worker also checks whether a private evening digest is due from 21:55 MYT,
+targeting around 22:00 delivery. Weekend early-evening startup requests cover the
+digest outside trading days. The public workflow exposes no message or account
+content; the private repository handles Telegram and delivery receipts. A private
+daily scheduled fallback is also configured. Delivery remains best effort.

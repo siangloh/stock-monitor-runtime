@@ -10,6 +10,8 @@ on:
   schedule:
     # A running worker checks every five minutes; hourly triggers request a successor.
     - cron: '17 * * * 1-5'
+    # Weekend evening coverage for the MYT daily digest.
+    - cron: '17 12,13 * * 0,6'
 permissions:
   contents: read
 concurrency:
@@ -60,13 +62,13 @@ jobs:
             cycle_started=$SECONDS
             git fetch origin paper-state --depth=1 >cycle.log 2>&1
             git checkout origin/paper-state -- data >>cycle.log 2>&1
-            rm -f work_updated.flag intraday_notify.flag
+            rm -f work_updated.flag intraday_notify.flag nightly_notify.flag
             if [ "$ACTION" = train ]; then
               args=(--train --market ALL)
             else
               args=(--execute)
             fi
-            if ../.runtime-venv/bin/python intraday.py "${args[@]}" >>cycle.log 2>&1; then
+            if ../.runtime-venv/bin/python intraday.py "${args[@]}" >>cycle.log 2>&1 && ../.runtime-venv/bin/python nightly_summary.py --queue >>cycle.log 2>&1; then
               if [ -f work_updated.flag ]; then
                 git worktree add --detach /tmp/private-paper-state origin/paper-state >>cycle.log 2>&1
                 mkdir -p /tmp/private-paper-state/data/intraday
