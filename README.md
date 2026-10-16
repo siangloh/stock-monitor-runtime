@@ -36,3 +36,5 @@ targeting around 22:00 delivery. Weekend early-evening startup requests cover th
 digest outside trading days. The public workflow exposes no message or account
 content; the private repository handles Telegram and delivery receipts. A private
 daily scheduled fallback is also configured. Delivery remains best effort.
+
+Workers now exit outside private calendar/report coverage windows rather than sleeping all day. Hourly restarts remain best effort. No paid service or larger runner is enabled.

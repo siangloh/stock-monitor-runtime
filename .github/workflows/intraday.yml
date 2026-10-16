@@ -113,6 +113,10 @@ jobs:
               test "$failures" = 0
               break
             fi
+            if [ "$(../.runtime-venv/bin/python runtime_cadence.py)" = no ]; then
+              echo 'Research window closed; next scheduled worker will recheck.'
+              break
+            fi
             remaining=$((deadline - SECONDS))
             if [ "$remaining" -le 0 ]; then break; fi
             delay=$((300 - (SECONDS - cycle_started)))
