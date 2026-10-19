@@ -38,3 +38,17 @@ content; the private repository handles Telegram and delivery receipts. A privat
 daily scheduled fallback is also configured. Delivery remains best effort.
 
 Workers now exit outside private calendar/report coverage windows rather than sleeping all day. Hourly restarts remain best effort. No paid service or larger runner is enabled.
+
+
+## Active-window successor
+
+At its bounded runtime end a worker requests a standard successor only while the
+private exchange/report window remains active. It uses this public repository's
+short-lived GITHUB_TOKEN with actions:write, not a new secret or paid service.
+The shared concurrency group serializes workers; queued hourly triggers may be
+replaced by the fresh successor. A maintenance-only handoff_test input shortens
+one worker to one minute; that flag is never propagated to its successor. Closed
+windows do not chain jobs. Initial startup, runner queues, failures and handoffs
+still have no punctuality or continuity guarantee. Strategies and data stay private.
+GitHub supports workflow_dispatch from GITHUB_TOKEN:
+https://docs.github.com/en/actions/concepts/security/github_token
