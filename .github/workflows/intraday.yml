@@ -66,6 +66,8 @@ jobs:
           deadline=$((SECONDS + 330 * 60))
           if [ "$HANDOFF_TEST" = true ]; then deadline=$((SECONDS + 60)); fi
           failures=0
+          conflicts=0
+          pending_save=0
           while true; do
             cycle_started=$SECONDS
             git fetch origin paper-state --depth=1 >cycle.log 2>&1
@@ -83,16 +85,21 @@ jobs:
                 cp -a data/. /tmp/private-paper-state/data/
                 cp cycle.log /tmp/private-paper-state/data/intraday/latest_debug.txt
                 git -C /tmp/private-paper-state add data
+                pending_save=0
                 if ! git -C /tmp/private-paper-state diff --cached --quiet; then
                   git -C /tmp/private-paper-state commit -m 'Update private paper research state' >>cycle.log 2>&1
                   if ! git -C /tmp/private-paper-state push origin HEAD:paper-state >>cycle.log 2>&1; then
-                    echo '::warning::Concurrent account update; discarded cycle will be recomputed.'
-                    failures=$((failures + 1))
+                    pending_save=1
+                    echo '::warning::State push failed; discarded cycle will be recomputed from remote state.'
+                    conflicts=$((conflicts + 1))
                   fi
                 fi
                 git worktree remove --force /tmp/private-paper-state >>cycle.log 2>&1
-                echo "$(date -u +%FT%TZ) Paper cycle saved privately."
+                if [ "$pending_save" = 0 ]; then
+                  echo "$(date -u +%FT%TZ) Paper cycle saved privately."
+                fi
               else
+                pending_save=0
                 echo "$(date -u +%FT%TZ) No state update; exchange may be closed."
               fi
             else
@@ -118,7 +125,7 @@ jobs:
               fi
             fi
             if [ "$ACTION" = train ]; then
-              test "$failures" = 0
+              test "$failures" = 0 && test "$pending_save" = 0
               break
             fi
             if [ "$(../.runtime-venv/bin/python runtime_cadence.py)" = no ]; then
@@ -132,10 +139,10 @@ jobs:
             if [ "$delay" -gt "$remaining" ]; then delay=$remaining; fi
             sleep "$delay"
           done
-          echo "Worker ended after bounded runtime; cycles with errors: $failures" >> "$GITHUB_STEP_SUMMARY"
+          echo "Worker ended after bounded runtime; analysis errors: $failures; discarded save attempts: $conflicts; unresolved save: $pending_save" >> "$GITHUB_STEP_SUMMARY"
           echo 'Scheduled startup remains best effort. Check private timestamps for monitoring gaps.' >> "$GITHUB_STEP_SUMMARY"
           if [ "$ACTION" != train ] && [ "$(../.runtime-venv/bin/python runtime_cadence.py)" = yes ]; then
             gh api --method POST "repos/$GITHUB_REPOSITORY/actions/workflows/intraday.yml/dispatches" -f ref=main -f 'inputs[action]=tick'
             echo 'Requested a standard successor for the active research window.'
           fi
-          test "$failures" = 0
+          test "$failures" = 0 && test "$pending_save" = 0
